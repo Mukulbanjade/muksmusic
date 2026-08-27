@@ -32,10 +32,14 @@ export const YT_DLP = resolveBinary();
 // server can act as a logged-in user. Set YTDLP_COOKIES to the file path, or
 // drop the exported cookies at server/cookies.txt.
 function cookieArgs() {
-  const explicit = process.env.YTDLP_COOKIES;
-  if (explicit && existsSync(explicit)) return ["--cookies", explicit];
-  const defaultPath = fileURLToPath(new URL("../cookies.txt", import.meta.url));
-  if (existsSync(defaultPath)) return ["--cookies", defaultPath];
+  const candidates = [
+    process.env.YTDLP_COOKIES, // explicit path
+    "/etc/secrets/cookies.txt", // Render Secret File
+    fileURLToPath(new URL("../cookies.txt", import.meta.url)), // server/cookies.txt
+  ];
+  for (const p of candidates) {
+    if (p && existsSync(p)) return ["--cookies", p];
+  }
   return [];
 }
 
