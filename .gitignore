@@ -1,0 +1,19 @@
+# Dependencies & builds
+node_modules/
+**/node_modules/
+app/dist/
+app/ios/
+app/android/
+app/.expo/
+app/web-build/
+
+# Vendored yt-dlp binary (installed fresh in Docker / via brew)
+server/bin/
+server/cookies.txt
+
+# Reference clone (not part of this project)
+playarr-reference/
+
+# Misc
+*.log
+.DS_Store

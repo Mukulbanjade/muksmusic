@@ -1,0 +1,21 @@
+# Fly.io config for muksmusic-server.
+# `fly launch` will replace `app` with a unique name and set primary_region.
+app = "muksmusic-server"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Scale to zero when idle to keep it ~free; first request after idle is a
+  # few seconds slower (cold start). Set min_machines_running = 1 to stay warm.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"

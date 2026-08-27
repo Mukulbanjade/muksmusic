@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "muksmusic",
+    "slug": "muksmusic",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "muksmusic",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "jsEngine": "jsc",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.muks.music",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.muks.music"
+    },
+    "web": {
+      "output": "single",
+      "bundler": "metro",
+      "name": "muksmusic",
+      "themeColor": "#000000",
+      "backgroundColor": "#000000",
+      "display": "standalone"
+    },
+    "plugins": [
+      "expo-audio",
+      "expo-sqlite"
+    ]
+  }
+}

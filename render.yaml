@@ -1,0 +1,18 @@
+# Render Blueprint for muksmusic-server.
+# In Render: New → Blueprint → connect the repo containing this file, and it
+# deploys the Docker service automatically. Render injects PORT; the server
+# reads process.env.PORT and binds 0.0.0.0, so no port config is needed here.
+services:
+  - type: web
+    name: muksmusic-server
+    runtime: docker
+    rootDir: server
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    # To survive YouTube bot-checks, add a cookies file and set this to its path
+    # (see server/DEPLOY.md). Leave unset if your server isn't being bot-checked.
+    # envVars:
+    #   - key: YTDLP_COOKIES
+    #     value: /app/cookies.txt
