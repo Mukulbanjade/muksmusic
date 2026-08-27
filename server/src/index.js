@@ -13,6 +13,7 @@
 import http from "node:http";
 import { URL } from "node:url";
 import {
+  cookieFilePath,
   getVersion,
   search,
   spawnAudioStream,
@@ -39,10 +40,12 @@ function youtubeUrl(id) {
 
 async function handleHealth(res) {
   const version = await getVersion();
+  const cookies = cookieFilePath();
   sendJson(res, 200, {
     ok: version != null,
     ytDlp: version,
     binary: YT_DLP,
+    cookies: cookies ? { found: true, path: cookies } : { found: false },
     name: "muksmusic-server",
   });
 }
