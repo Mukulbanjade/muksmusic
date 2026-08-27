@@ -83,6 +83,11 @@ export function spawnAudioStream(url) {
     YT_DLP,
     [
       ...cookieArgs(),
+      // Cookies only authenticate on cookie-aware clients; yt-dlp otherwise
+      // defaults to mobile clients (visionos/ios) that ignore them. Force the
+      // web-family clients so a logged-in cookies file is actually used.
+      "--extractor-args",
+      "youtube:player_client=web_safari,web,tv,default",
       "-f",
       "140/bestaudio[ext=m4a]/bestaudio",
       "--no-playlist",
