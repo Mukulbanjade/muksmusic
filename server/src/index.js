@@ -47,6 +47,21 @@ function cookieDiag() {
   };
 }
 import { mbSearchRecordings } from "./musicbrainz.js";
+import { writeFileSync } from "node:fs";
+
+// Robust cookies delivery that doesn't depend on how the host mounts files:
+// paste the base64 of cookies.txt into the YTDLP_COOKIES_B64 env var, and we
+// write it to a real file at startup and point yt-dlp at it.
+if (process.env.YTDLP_COOKIES_B64) {
+  try {
+    const p = "/tmp/muks-cookies.txt";
+    writeFileSync(p, Buffer.from(process.env.YTDLP_COOKIES_B64, "base64"));
+    process.env.YTDLP_COOKIES = p;
+    console.log(`[cookies] wrote ${p} from YTDLP_COOKIES_B64`);
+  } catch (e) {
+    console.error("[cookies] failed to decode YTDLP_COOKIES_B64:", e.message);
+  }
+}
 
 const PORT = Number(process.env.PORT) || 8787;
 const HOST = process.env.HOST || "0.0.0.0";
