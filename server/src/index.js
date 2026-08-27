@@ -11,6 +11,7 @@
 // Start with `npm start`. Point the app's Settings screen at http://<mac-ip>:8787.
 
 import http from "node:http";
+import { existsSync, readdirSync } from "node:fs";
 import { URL } from "node:url";
 import {
   cookieFilePath,
@@ -19,6 +20,32 @@ import {
   spawnAudioStream,
   YT_DLP,
 } from "./ytdlp.js";
+
+// Temporary diagnostic: where did the host put the cookies Secret File?
+function cookieDiag() {
+  const probe = [
+    "/etc/secrets/cookies.txt",
+    "/app/cookies.txt",
+    `${process.cwd()}/cookies.txt`,
+    "/etc/secrets",
+  ];
+  const checks = {};
+  for (const p of probe) checks[p] = existsSync(p);
+  const listDir = (d) => {
+    try {
+      return readdirSync(d);
+    } catch (e) {
+      return `err:${e.code || e.message}`;
+    }
+  };
+  return {
+    cwd: process.cwd(),
+    checks,
+    etcSecrets: listDir("/etc/secrets"),
+    cwdFiles: listDir(process.cwd()).filter?.((f) => /cookie|txt/.test(f)) ?? [],
+    env_YTDLP_COOKIES: process.env.YTDLP_COOKIES || null,
+  };
+}
 import { mbSearchRecordings } from "./musicbrainz.js";
 
 const PORT = Number(process.env.PORT) || 8787;
@@ -46,6 +73,7 @@ async function handleHealth(res) {
     ytDlp: version,
     binary: YT_DLP,
     cookies: cookies ? { found: true, path: cookies } : { found: false },
+    diag: cookieDiag(),
     name: "muksmusic-server",
   });
 }
