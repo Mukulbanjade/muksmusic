@@ -14,6 +14,8 @@ RUN apt-get update \
 WORKDIR /app
 COPY src ./src
 COPY package.json ./
+# Pre-built web UI (Expo web export). Present so the server can also serve the app.
+COPY web ./web
 
 # Hosts (Fly/Render/Railway) inject PORT; default to 8080.
 ENV PORT=8080

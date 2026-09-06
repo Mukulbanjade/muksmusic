@@ -11,8 +11,9 @@
 // Start with `npm start`. Point the app's Settings screen at http://<mac-ip>:8787.
 
 import http from "node:http";
-import { existsSync, readdirSync } from "node:fs";
-import { URL } from "node:url";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { URL, fileURLToPath } from "node:url";
+import { extname, join, normalize } from "node:path";
 import {
   cookieFilePath,
   getVersion,
@@ -173,6 +174,55 @@ async function handleArt(url, res) {
   }
 }
 
+// ---- Static web UI --------------------------------------------------------
+// Serve the built web app (Expo web export) so the whole thing — UI + API —
+// runs from this one server. Files live in ../web (i.e. /app/web in Docker).
+const WEB_DIR = fileURLToPath(new URL("../web", import.meta.url));
+const HAS_WEB = existsSync(join(WEB_DIR, "index.html"));
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".ttf": "font/ttf",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".map": "application/json; charset=utf-8",
+};
+
+function serveStatic(pathname, res) {
+  if (!HAS_WEB) return sendJson(res, 404, { error: "not found" });
+
+  // Resolve within WEB_DIR, guarding against path traversal.
+  const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, "");
+  let filePath = join(WEB_DIR, rel);
+  if (!filePath.startsWith(WEB_DIR)) filePath = join(WEB_DIR, "index.html");
+
+  // Directory or missing file → serve index.html (single-page app).
+  if (!existsSync(filePath) || statSync(filePath).isDirectory()) {
+    filePath = join(WEB_DIR, "index.html");
+  }
+
+  try {
+    const body = readFileSync(filePath);
+    res.writeHead(200, {
+      "content-type": MIME[extname(filePath)] || "application/octet-stream",
+      "cache-control": filePath.endsWith("index.html")
+        ? "no-cache"
+        : "public, max-age=86400",
+    });
+    res.end(body);
+  } catch {
+    sendJson(res, 404, { error: "not found" });
+  }
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -186,7 +236,6 @@ const server = http.createServer((req, res) => {
   }
 
   switch (url.pathname) {
-    case "/":
     case "/health":
       return handleHealth(res);
     case "/search":
@@ -196,7 +245,9 @@ const server = http.createServer((req, res) => {
     case "/art":
       return handleArt(url, res);
     default:
-      return sendJson(res, 404, { error: "not found" });
+      // Anything else is the web UI (or its assets); falls back to a 404 JSON
+      // when no web build is bundled.
+      return serveStatic(url.pathname, res);
   }
 });
 

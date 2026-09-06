@@ -1,18 +1,26 @@
+import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type { SearchResult } from "@/types";
 
 const SERVER_URL_KEY = "muksmusic.serverUrl";
-// Set this to your hosted server (e.g. a Fly.io/Render URL) so the app works
-// without your Mac. Overridable in the app's Settings screen.
-const DEFAULT_SERVER_URL = "https://muksmusic-server.fly.dev";
+
+// Default server address. When the web build is served BY the muksmusic server
+// itself, the app talks to whatever origin it was loaded from — so no config is
+// ever needed. On native, point it at your server (editable in Settings).
+function defaultServerUrl(): string {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  return "http://localhost:8787";
+}
 
 let cachedUrl: string | null = null;
 
 export async function getServerUrl(): Promise<string> {
   if (cachedUrl != null) return cachedUrl;
   const stored = await AsyncStorage.getItem(SERVER_URL_KEY);
-  cachedUrl = stored ?? DEFAULT_SERVER_URL;
+  cachedUrl = stored ?? defaultServerUrl();
   return cachedUrl;
 }
 
@@ -23,7 +31,7 @@ export async function setServerUrl(url: string): Promise<void> {
 }
 
 export function getDefaultServerUrl(): string {
-  return DEFAULT_SERVER_URL;
+  return defaultServerUrl();
 }
 
 export type HealthResult = {
