@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet } from "react-native";
 
+import { resolveLocal } from "@/lib/localPath";
 import { gradientForSeed, radius } from "@/theme/colors";
 
 type Props = {
@@ -29,7 +30,10 @@ export function Artwork({
 }: Props) {
   // Ordered list of sources to try before giving up on a real image.
   const sources = useMemo(
-    () => [uri, remoteUri, fallbackUri].filter(Boolean) as string[],
+    () =>
+      [uri ? resolveLocal(uri) : null, remoteUri, fallbackUri].filter(
+        Boolean,
+      ) as string[],
     [uri, remoteUri, fallbackUri],
   );
   const [index, setIndex] = useState(0);

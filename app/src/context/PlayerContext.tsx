@@ -10,6 +10,7 @@ import React, {
   useState,
 } from "react";
 
+import { resolveLocal } from "@/lib/localPath";
 import type { Track } from "@/types";
 
 export type RepeatMode = "off" | "all" | "one";
@@ -50,6 +51,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const crossfadeMsRef = useRef(0);
   const fadingRef = useRef(false);
   const fadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startedAtRef = useRef(0);
 
   const [current, setCurrent] = useState<Track | null>(null);
   const [queue, setQueue] = useState<Track[]>([]);
@@ -97,7 +99,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         if (typeof status.playing === "boolean") setIsPlaying(status.playing);
 
         maybeCrossfade(status);
-        if (status.didJustFinish && !fadingRef.current) handleTrackEnd();
+        // Ignore a "finished" that arrives in the first moment after loading
+        // (some files report a spurious immediate finish).
+        if (
+          status.didJustFinish &&
+          !fadingRef.current &&
+          Date.now() - startedAtRef.current > 1500
+        ) {
+          handleTrackEnd();
+        }
       });
       playersRef.current[i] = p;
     }
@@ -139,9 +149,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     const q = queueRef.current;
     const track = q[index];
     if (!track) return;
-    const p = getPlayer(slot, track.localAudioPath);
+    const uri = resolveLocal(track.localAudioPath);
+    const p = getPlayer(slot, uri);
     setVolume(p, 1);
-    p.replace({ uri: track.localAudioPath });
+    p.replace({ uri });
     if (autoplay) p.play();
   };
 
@@ -157,6 +168,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     indexRef.current = index;
+    startedAtRef.current = Date.now();
     setCurrent(q[index]);
     setPositionMs(0);
     setDurationMs(q[index].durationMs ?? 0);
@@ -168,10 +180,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   function maybeCrossfade(status: any) {
     const xf = crossfadeMsRef.current;
     if (xf <= 0 || fadingRef.current) return;
+    if (status.playing === false) return; // never crossfade while paused
     const dur = status.duration;
     const cur = status.currentTime;
     if (typeof dur !== "number" || dur <= 0 || typeof cur !== "number") return;
-    if (dur - cur > xf / 1000) return; // not near the end yet
+    const xfSec = xf / 1000;
+    // Only for tracks comfortably longer than the fade, and only once we're
+    // genuinely past the halfway mark — guards against wrong-duration files.
+    if (dur < xfSec + 8) return;
+    if (cur < dur / 2) return;
+    if (dur - cur > xfSec) return; // not near the end yet
 
     const target = nextIndexFrom(indexRef.current);
     if (target == null || target === indexRef.current) return; // nothing to fade to
@@ -188,6 +206,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     // Hand the UI over to the incoming track immediately.
     activeRef.current = toSlot;
     indexRef.current = target;
+    startedAtRef.current = Date.now();
     setCurrent(queueRef.current[target]);
     setDurationMs(queueRef.current[target].durationMs ?? 0);
 
@@ -237,7 +256,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const toggle = useCallback(() => {
     const p = playersRef.current[activeRef.current];
     if (!p) return;
-    if (isPlaying) {
+    // Use the player's actual state, not React state, to avoid stale toggles.
+    const playing = (p as any).playing ?? isPlaying;
+    if (playing) {
       p.pause();
       setIsPlaying(false);
     } else {

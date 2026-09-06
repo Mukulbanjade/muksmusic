@@ -3,6 +3,7 @@ import * as FileSystem from "expo-file-system/legacy";
 
 import { buildArtUrl, buildDownloadUrl } from "@/api/server";
 import { insertTrack } from "@/db/database";
+import { resolveLocal } from "@/lib/localPath";
 import type { SearchResult, Track } from "@/types";
 
 const isWeb = Platform.OS === "web";
@@ -121,9 +122,13 @@ export async function downloadTrack(
 /** Remove the on-disk audio and art files for a track. */
 export async function removeTrackFiles(track: Track): Promise<void> {
   if (isWeb) return; // nothing on disk in the browser preview
-  await FileSystem.deleteAsync(track.localAudioPath, { idempotent: true });
+  await FileSystem.deleteAsync(resolveLocal(track.localAudioPath), {
+    idempotent: true,
+  });
   if (track.localArtPath) {
-    await FileSystem.deleteAsync(track.localArtPath, { idempotent: true });
+    await FileSystem.deleteAsync(resolveLocal(track.localArtPath), {
+      idempotent: true,
+    });
   }
 }
 
