@@ -3,7 +3,17 @@
 // this server, which shells out to yt-dlp on the host machine.
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 function resolveBinary() {
@@ -98,6 +108,88 @@ export function spawnAudioStream(url) {
     ],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
+}
+
+/**
+ * Download a track's audio, remux it to a proper (non-fragmented) m4a via
+ * ffmpeg — which fixes the wrong-duration / trailing-silence bug that raw
+ * format-140 DASH streams have — and store it at `<libraryDir>/<id>.m4a`.
+ * Returns the final file path.
+ */
+export function downloadToLibrary(videoUrl, id, libraryDir) {
+  return new Promise((resolve, reject) => {
+    const work = mkdtempSync(join(tmpdir(), "muks-"));
+    const args = [
+      ...cookieArgs(),
+      "--extractor-args",
+      "youtube:player_client=web_safari,web,tv,default",
+      "-f",
+      "140/bestaudio[ext=m4a]/bestaudio",
+      "--remux-video",
+      "m4a", // remux to a clean m4a container (correct duration)
+      "--no-playlist",
+      "--no-warnings",
+      "-o",
+      join(work, "audio.%(ext)s"),
+      videoUrl,
+    ];
+    const child = spawn(YT_DLP, args, { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      cleanup();
+      reject(new Error("yt-dlp timed out"));
+    }, 180_000);
+
+    const cleanup = () => {
+      try {
+        rmSync(work, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    };
+
+    child.stderr.on("data", (d) => (err += d.toString()));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      cleanup();
+      reject(e);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        cleanup();
+        return reject(new Error(err.trim().slice(0, 500) || `yt-dlp exit ${code}`));
+      }
+      let produced;
+      try {
+        const files = readdirSync(work);
+        produced = files.find((f) => f.endsWith(".m4a")) || files[0];
+      } catch {
+        /* ignore */
+      }
+      if (!produced) {
+        cleanup();
+        return reject(new Error("download produced no file"));
+      }
+      const src = join(work, produced);
+      const dest = join(libraryDir, `${id}.m4a`);
+      try {
+        renameSync(src, dest);
+      } catch {
+        // cross-device move — fall back to copy
+        try {
+          writeFileSync(dest, readFileSync(src));
+        } catch (e) {
+          cleanup();
+          return reject(new Error(`failed to store file: ${e.message}`));
+        }
+      }
+      cleanup();
+      if (!existsSync(dest)) return reject(new Error("failed to store file"));
+      resolve(dest);
+    });
+  });
 }
 
 export async function getVersion() {

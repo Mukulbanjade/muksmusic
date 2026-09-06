@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import Slider from "@react-native-community/slider";
 import { useNavigation } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useState } from "react";
@@ -7,6 +6,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Artwork } from "@/components/Artwork";
+import { SeekBar } from "@/components/SeekBar";
+import { selectHaptic, tapHaptic } from "@/lib/haptics";
 import { useLibrary } from "@/context/LibraryContext";
 import { usePlayer } from "@/context/PlayerContext";
 import { formatDuration } from "@/lib/format";
@@ -51,7 +52,15 @@ export function NowPlayingScreen() {
           <Ionicons name="chevron-down" size={30} color={colors.text} />
         </Pressable>
         <Text style={styles.headerLabel}>Now Playing</Text>
-        <View style={{ width: 30 }} />
+        <Pressable
+          hitSlop={12}
+          onPress={() => {
+            tapHaptic();
+            navigation.navigate("Lyrics");
+          }}
+        >
+          <Ionicons name="chatbox-ellipses-outline" size={26} color={colors.text} />
+        </Pressable>
       </View>
 
       <View style={styles.artWrap}>
@@ -83,47 +92,47 @@ export function NowPlayingScreen() {
         </Pressable>
       </View>
 
-      <Slider
-        style={styles.slider}
-        minimumValue={0}
-        maximumValue={max}
-        value={displayMs}
-        minimumTrackTintColor={colors.text}
-        maximumTrackTintColor="rgba(255,255,255,0.3)"
-        thumbTintColor={colors.text}
-        onValueChange={(v) => setScrubbing(v)}
-        onSlidingComplete={(v) => {
-          seekTo(v);
-          setScrubbing(null);
-        }}
-      />
+      <View style={styles.slider}>
+        <SeekBar
+          value={positionMs}
+          max={max}
+          onScrub={(ms) => setScrubbing(ms)}
+          onSeek={(ms) => {
+            seekTo(ms);
+            setScrubbing(null);
+          }}
+        />
+      </View>
       <View style={styles.timeRow}>
         <Text style={styles.time}>{formatDuration(displayMs)}</Text>
         <Text style={styles.time}>{formatDuration(max)}</Text>
       </View>
 
       <View style={styles.controls}>
-        <Pressable hitSlop={10} onPress={toggleShuffle}>
+        <Pressable hitSlop={10} onPress={() => { selectHaptic(); toggleShuffle(); }}>
           <Ionicons
             name="shuffle"
             size={26}
             color={shuffle ? colors.accent : colors.textMuted}
           />
         </Pressable>
-        <Pressable hitSlop={10} onPress={previous}>
+        <Pressable hitSlop={10} onPress={() => { tapHaptic(); previous(); }}>
           <Ionicons name="play-skip-back" size={36} color={colors.text} />
         </Pressable>
-        <Pressable style={styles.playBtn} onPress={toggle}>
+        <Pressable
+          style={({ pressed }) => [styles.playBtn, pressed && { transform: [{ scale: 0.92 }] }]}
+          onPress={() => { tapHaptic(); toggle(); }}
+        >
           <Ionicons
             name={isPlaying ? "pause" : "play"}
             size={36}
             color="#000"
           />
         </Pressable>
-        <Pressable hitSlop={10} onPress={next}>
+        <Pressable hitSlop={10} onPress={() => { tapHaptic(); next(); }}>
           <Ionicons name="play-skip-forward" size={36} color={colors.text} />
         </Pressable>
-        <Pressable hitSlop={10} onPress={cycleRepeat}>
+        <Pressable hitSlop={10} onPress={() => { selectHaptic(); cycleRepeat(); }}>
           <Ionicons
             name={repeat === "one" ? "repeat" : "repeat"}
             size={26}
@@ -155,6 +164,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: spacing.xxl,
     marginBottom: spacing.xxl,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 12,
   },
   metaRow: {
     flexDirection: "row",

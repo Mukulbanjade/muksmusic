@@ -12,7 +12,9 @@ function defaultServerUrl(): string {
   if (Platform.OS === "web" && typeof window !== "undefined") {
     return window.location.origin;
   }
-  return "http://localhost:8787";
+  // Native app downloads from your home server (via the Cloudflare tunnel).
+  // Editable in Settings.
+  return "https://music.side-quest.cloud";
 }
 
 let cachedUrl: string | null = null;

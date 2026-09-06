@@ -9,6 +9,7 @@ import React, {
 
 import * as db from "@/db/database";
 import { downloadTrack, removeTrackFiles } from "@/lib/download";
+import { successHaptic } from "@/lib/haptics";
 import type { DownloadState, Playlist, SearchResult, Track } from "@/types";
 
 type LibraryContextValue = {
@@ -78,6 +79,7 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
           setDownload(result.id, { progress });
         });
         setDownload(result.id, { progress: 1, status: "done" });
+        successHaptic();
         await refresh();
         // Drop the finished entry after a moment so the UI settles.
         setTimeout(() => {

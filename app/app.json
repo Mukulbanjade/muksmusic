@@ -6,11 +6,18 @@
     "orientation": "portrait",
     "scheme": "muksmusic",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "jsEngine": "jsc",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A6E2E"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.muks.music",
+      "icon": "./assets/icon.png",
       "infoPlist": {
         "UIBackgroundModes": ["audio"],
         "NSAppTransportSecurity": {
@@ -19,12 +26,17 @@
       }
     },
     "android": {
-      "package": "com.muks.music"
+      "package": "com.muks.music",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A6E2E"
+      }
     },
     "web": {
       "output": "single",
       "bundler": "metro",
       "name": "muksmusic",
+      "favicon": "./assets/icon.png",
       "themeColor": "#000000",
       "backgroundColor": "#000000",
       "display": "standalone"

@@ -11,16 +11,32 @@
 // Start with `npm start`. Point the app's Settings screen at http://<mac-ip>:8787.
 
 import http from "node:http";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { URL, fileURLToPath } from "node:url";
 import { extname, join, normalize } from "node:path";
 import {
   cookieFilePath,
+  downloadToLibrary,
   getVersion,
   search,
-  spawnAudioStream,
   YT_DLP,
 } from "./ytdlp.js";
+
+// Downloaded songs are cached here (a persistent library on the server). Mount a
+// Docker volume at /app/library to keep them across container rebuilds.
+const LIBRARY_DIR = fileURLToPath(new URL("../library", import.meta.url));
+try {
+  mkdirSync(LIBRARY_DIR, { recursive: true });
+} catch {
+  /* ignore */
+}
 
 // Temporary diagnostic: where did the host put the cookies Secret File?
 function cookieDiag() {
@@ -110,46 +126,61 @@ async function handleSearch(url, res) {
   }
 }
 
-function handleDownload(url, res) {
+/** Serve a local audio file, honoring HTTP Range requests (for seeking). */
+function serveAudioFile(filePath, req, res) {
+  const total = statSync(filePath).size;
+  const range = req.headers.range;
+  const baseHeaders = {
+    "content-type": "audio/mp4",
+    "access-control-allow-origin": "*",
+    "accept-ranges": "bytes",
+    "cache-control": "public, max-age=604800",
+  };
+
+  if (range) {
+    const m = /bytes=(\d*)-(\d*)/.exec(range);
+    let start = m && m[1] ? parseInt(m[1], 10) : 0;
+    let end = m && m[2] ? parseInt(m[2], 10) : total - 1;
+    if (Number.isNaN(start)) start = 0;
+    if (Number.isNaN(end) || end >= total) end = total - 1;
+    if (start > end || start >= total) {
+      res.writeHead(416, { "content-range": `bytes */${total}` });
+      return res.end();
+    }
+    res.writeHead(206, {
+      ...baseHeaders,
+      "content-range": `bytes ${start}-${end}/${total}`,
+      "content-length": end - start + 1,
+    });
+    createReadStream(filePath, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, { ...baseHeaders, "content-length": total });
+    createReadStream(filePath).pipe(res);
+  }
+}
+
+function handleDownload(url, req, res) {
   const id = (url.searchParams.get("id") || "").trim();
   if (!/^[\w-]{6,20}$/.test(id)) {
     return sendJson(res, 400, { error: "invalid or missing ?id=" });
   }
-  console.log(`[download] ${id}`);
-  const child = spawnAudioStream(youtubeUrl(id));
-  let errBuf = "";
-  let started = false;
+  const cached = join(LIBRARY_DIR, `${id}.m4a`);
 
-  res.on("close", () => {
-    if (!child.killed) child.kill("SIGKILL");
-  });
+  // Fast path: already downloaded → serve from disk (instant, correct duration).
+  if (existsSync(cached)) {
+    return serveAudioFile(cached, req, res);
+  }
 
-  child.stderr.on("data", (d) => (errBuf += d.toString()));
-  child.stdout.once("data", () => {
-    started = true;
-    res.writeHead(200, {
-      "content-type": "audio/mp4",
-      "access-control-allow-origin": "*",
-      "cache-control": "no-store",
+  // First time: download + remux to a proper m4a, cache it, then serve.
+  console.log(`[download] fetching ${id}`);
+  downloadToLibrary(youtubeUrl(id), id, LIBRARY_DIR)
+    .then((path) => serveAudioFile(path, req, res))
+    .catch((e) => {
+      console.error("[download] failed", e.message);
+      if (!res.headersSent) {
+        sendJson(res, 502, { error: "download failed", detail: e.message });
+      }
     });
-  });
-  child.stdout.on("data", (chunk) => res.write(chunk));
-
-  child.on("error", (e) => {
-    console.error("[download] spawn error", e.message);
-    if (!started && !res.headersSent) sendJson(res, 500, { error: e.message });
-  });
-  child.on("close", (code) => {
-    if (started) {
-      res.end();
-    } else if (!res.headersSent) {
-      console.error("[download] failed", errBuf.trim());
-      sendJson(res, 502, {
-        error: "download failed",
-        detail: errBuf.trim().slice(0, 500),
-      });
-    }
-  });
 }
 
 async function handleArt(url, res) {
@@ -241,7 +272,7 @@ const server = http.createServer((req, res) => {
     case "/search":
       return handleSearch(url, res);
     case "/download":
-      return handleDownload(url, res);
+      return handleDownload(url, req, res);
     case "/art":
       return handleArt(url, res);
     default:

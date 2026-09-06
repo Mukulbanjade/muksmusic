@@ -1,8 +1,5 @@
-import {
-  AudioPlayer,
-  createAudioPlayer,
-  setAudioModeAsync,
-} from "expo-audio";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { AudioPlayer, createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import React, {
   createContext,
   useCallback,
@@ -17,6 +14,8 @@ import type { Track } from "@/types";
 
 export type RepeatMode = "off" | "all" | "one";
 
+const CROSSFADE_KEY = "muksmusic.crossfadeMs";
+
 type PlayerContextValue = {
   current: Track | null;
   queue: Track[];
@@ -25,6 +24,7 @@ type PlayerContextValue = {
   durationMs: number;
   repeat: RepeatMode;
   shuffle: boolean;
+  crossfadeMs: number;
 
   playQueue: (tracks: Track[], startIndex: number) => void;
   playTrack: (track: Track) => void;
@@ -34,16 +34,22 @@ type PlayerContextValue = {
   seekTo: (ms: number) => void;
   cycleRepeat: () => void;
   toggleShuffle: () => void;
+  setCrossfadeMs: (ms: number) => void;
 };
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
-  const playerRef = useRef<AudioPlayer | null>(null);
+  // Two players so one track can fade out while the next fades in.
+  const playersRef = useRef<(AudioPlayer | null)[]>([null, null]);
+  const activeRef = useRef(0);
   const queueRef = useRef<Track[]>([]);
-  const indexRef = useRef<number>(-1);
+  const indexRef = useRef(-1);
   const repeatRef = useRef<RepeatMode>("off");
-  const shuffleRef = useRef<boolean>(false);
+  const shuffleRef = useRef(false);
+  const crossfadeMsRef = useRef(0);
+  const fadingRef = useRef(false);
+  const fadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [current, setCurrent] = useState<Track | null>(null);
   const [queue, setQueue] = useState<Track[]>([]);
@@ -52,79 +58,165 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [durationMs, setDurationMs] = useState(0);
   const [repeat, setRepeat] = useState<RepeatMode>("off");
   const [shuffle, setShuffle] = useState(false);
+  const [crossfadeMs, setCrossfadeMsState] = useState(0);
 
-  // Configure audio for silent-switch + background playback once.
   useEffect(() => {
     setAudioModeAsync({
       playsInSilentMode: true,
       shouldPlayInBackground: true,
       interruptionMode: "duckOthers",
     }).catch(() => undefined);
+    AsyncStorage.getItem(CROSSFADE_KEY)
+      .then((v) => {
+        const ms = v ? parseInt(v, 10) : 0;
+        if (!Number.isNaN(ms)) {
+          crossfadeMsRef.current = ms;
+          setCrossfadeMsState(ms);
+        }
+      })
+      .catch(() => undefined);
     return () => {
-      playerRef.current?.remove();
-      playerRef.current = null;
+      clearFade();
+      playersRef.current.forEach((p) => p?.remove());
+      playersRef.current = [null, null];
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ensurePlayer = useCallback((uri: string): AudioPlayer => {
-    if (!playerRef.current) {
-      const p = createAudioPlayer({ uri }, { updateInterval: 500 });
+  // Create (once) the player for slot i, wiring its status listener.
+  const getPlayer = useCallback((i: number, uri: string): AudioPlayer => {
+    if (!playersRef.current[i]) {
+      const p = createAudioPlayer({ uri }, { updateInterval: 250 });
       p.addListener("playbackStatusUpdate", (status: any) => {
+        if (i !== activeRef.current) return; // only the active player drives UI
         if (typeof status.currentTime === "number") {
           setPositionMs(Math.round(status.currentTime * 1000));
         }
         if (typeof status.duration === "number" && status.duration > 0) {
           setDurationMs(Math.round(status.duration * 1000));
         }
-        if (typeof status.playing === "boolean") {
-          setIsPlaying(status.playing);
-        }
-        if (status.didJustFinish) {
-          handleTrackEnd();
-        }
+        if (typeof status.playing === "boolean") setIsPlaying(status.playing);
+
+        maybeCrossfade(status);
+        if (status.didJustFinish && !fadingRef.current) handleTrackEnd();
       });
-      playerRef.current = p;
+      playersRef.current[i] = p;
     }
-    return playerRef.current;
+    return playersRef.current[i]!;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadIndex = useCallback(
-    (index: number) => {
-      const q = queueRef.current;
-      if (index < 0 || index >= q.length) return;
-      const track = q[index];
-      indexRef.current = index;
-      setCurrent(track);
-      setPositionMs(0);
-      setDurationMs(track.durationMs ?? 0);
+  const setVolume = (p: AudioPlayer | null, v: number) => {
+    if (!p) return;
+    try {
+      p.volume = Math.max(0, Math.min(1, v));
+    } catch {
+      /* ignore */
+    }
+  };
 
-      const player = ensurePlayer(track.localAudioPath);
-      player.replace({ uri: track.localAudioPath });
-      player.play();
-      setIsPlaying(true);
-    },
-    [ensurePlayer],
-  );
+  const clearFade = () => {
+    if (fadeTimerRef.current) {
+      clearInterval(fadeTimerRef.current);
+      fadeTimerRef.current = null;
+    }
+    fadingRef.current = false;
+  };
+
+  /** Index of the track to play after `from`, or null if the queue should stop. */
+  const nextIndexFrom = (from: number): number | null => {
+    const q = queueRef.current;
+    if (repeatRef.current === "one") return from;
+    if (shuffleRef.current && q.length > 1) {
+      let n = from;
+      while (n === from) n = Math.floor(Math.random() * q.length);
+      return n;
+    }
+    const n = from + 1;
+    if (n >= q.length) return repeatRef.current === "all" ? 0 : null;
+    return n;
+  };
+
+  const loadInto = (slot: number, index: number, autoplay = true) => {
+    const q = queueRef.current;
+    const track = q[index];
+    if (!track) return;
+    const p = getPlayer(slot, track.localAudioPath);
+    setVolume(p, 1);
+    p.replace({ uri: track.localAudioPath });
+    if (autoplay) p.play();
+  };
+
+  const loadIndex = useCallback((index: number) => {
+    const q = queueRef.current;
+    if (index < 0 || index >= q.length) return;
+    clearFade();
+    // Stop the other player if it was mid-fade.
+    const other = playersRef.current[1 - activeRef.current];
+    try {
+      other?.pause();
+    } catch {
+      /* ignore */
+    }
+    indexRef.current = index;
+    setCurrent(q[index]);
+    setPositionMs(0);
+    setDurationMs(q[index].durationMs ?? 0);
+    loadInto(activeRef.current, index, true);
+    setIsPlaying(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Called on every status tick of the active player.
+  function maybeCrossfade(status: any) {
+    const xf = crossfadeMsRef.current;
+    if (xf <= 0 || fadingRef.current) return;
+    const dur = status.duration;
+    const cur = status.currentTime;
+    if (typeof dur !== "number" || dur <= 0 || typeof cur !== "number") return;
+    if (dur - cur > xf / 1000) return; // not near the end yet
+
+    const target = nextIndexFrom(indexRef.current);
+    if (target == null || target === indexRef.current) return; // nothing to fade to
+
+    // Begin crossfade into the inactive slot.
+    fadingRef.current = true;
+    const fromSlot = activeRef.current;
+    const toSlot = 1 - fromSlot;
+    const fromPlayer = playersRef.current[fromSlot];
+    loadInto(toSlot, target, true);
+    const toPlayer = playersRef.current[toSlot];
+    setVolume(toPlayer, 0);
+
+    // Hand the UI over to the incoming track immediately.
+    activeRef.current = toSlot;
+    indexRef.current = target;
+    setCurrent(queueRef.current[target]);
+    setDurationMs(queueRef.current[target].durationMs ?? 0);
+
+    const steps = Math.max(1, Math.round(xf / 50));
+    let step = 0;
+    fadeTimerRef.current = setInterval(() => {
+      step++;
+      const t = step / steps;
+      setVolume(fromPlayer, 1 - t);
+      setVolume(toPlayer, t);
+      if (step >= steps) {
+        try {
+          fromPlayer?.pause();
+        } catch {
+          /* ignore */
+        }
+        setVolume(fromPlayer, 1);
+        clearFade();
+      }
+    }, 50);
+  }
 
   const handleTrackEnd = useCallback(() => {
-    const mode = repeatRef.current;
-    if (mode === "one") {
-      loadIndex(indexRef.current);
+    const target = nextIndexFrom(indexRef.current);
+    if (target == null) {
+      setIsPlaying(false);
       return;
     }
-    const q = queueRef.current;
-    let nextIndex = indexRef.current + 1;
-    if (shuffleRef.current && q.length > 1) {
-      nextIndex = Math.floor(Math.random() * q.length);
-    }
-    if (nextIndex >= q.length) {
-      if (mode === "all") nextIndex = 0;
-      else {
-        setIsPlaying(false);
-        return;
-      }
-    }
-    loadIndex(nextIndex);
+    loadIndex(target);
   }, [loadIndex]);
 
   const playQueue = useCallback(
@@ -138,52 +230,39 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   );
 
   const playTrack = useCallback(
-    (track: Track) => {
-      playQueue([track], 0);
-    },
+    (track: Track) => playQueue([track], 0),
     [playQueue],
   );
 
   const toggle = useCallback(() => {
-    const player = playerRef.current;
-    if (!player) return;
+    const p = playersRef.current[activeRef.current];
+    if (!p) return;
     if (isPlaying) {
-      player.pause();
+      p.pause();
       setIsPlaying(false);
     } else {
-      player.play();
+      p.play();
       setIsPlaying(true);
     }
   }, [isPlaying]);
 
   const next = useCallback(() => {
-    const q = queueRef.current;
-    let nextIndex = indexRef.current + 1;
-    if (shuffleRef.current && q.length > 1) {
-      nextIndex = Math.floor(Math.random() * q.length);
-    }
-    if (nextIndex >= q.length) nextIndex = 0;
-    loadIndex(nextIndex);
+    const target = nextIndexFrom(indexRef.current);
+    loadIndex(target ?? 0);
   }, [loadIndex]);
 
   const previous = useCallback(() => {
-    // Restart the track if we're more than 3s in; otherwise go back one.
-    if (positionMs > 3000) {
-      playerRef.current?.seekTo(0);
+    const p = playersRef.current[activeRef.current];
+    if (positionMs > 3000 || indexRef.current <= 0) {
+      p?.seekTo(0);
       setPositionMs(0);
       return;
     }
-    const prevIndex = indexRef.current - 1;
-    if (prevIndex < 0) {
-      playerRef.current?.seekTo(0);
-      setPositionMs(0);
-      return;
-    }
-    loadIndex(prevIndex);
+    loadIndex(indexRef.current - 1);
   }, [positionMs, loadIndex]);
 
   const seekTo = useCallback((ms: number) => {
-    playerRef.current?.seekTo(ms / 1000);
+    playersRef.current[activeRef.current]?.seekTo(ms / 1000);
     setPositionMs(ms);
   }, []);
 
@@ -199,6 +278,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setShuffle(shuffleRef.current);
   }, []);
 
+  const setCrossfadeMs = useCallback((ms: number) => {
+    crossfadeMsRef.current = ms;
+    setCrossfadeMsState(ms);
+    AsyncStorage.setItem(CROSSFADE_KEY, String(ms)).catch(() => undefined);
+  }, []);
+
   const value: PlayerContextValue = useMemo(
     () => ({
       current,
@@ -208,6 +293,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       durationMs,
       repeat,
       shuffle,
+      crossfadeMs,
       playQueue,
       playTrack,
       toggle,
@@ -216,6 +302,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       seekTo,
       cycleRepeat,
       toggleShuffle,
+      setCrossfadeMs,
     }),
     [
       current,
@@ -225,6 +312,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       durationMs,
       repeat,
       shuffle,
+      crossfadeMs,
       playQueue,
       playTrack,
       toggle,
@@ -233,6 +321,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       seekTo,
       cycleRepeat,
       toggleShuffle,
+      setCrossfadeMs,
     ],
   );
 

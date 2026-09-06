@@ -14,9 +14,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { checkHealth, getServerUrl, setServerUrl } from "@/api/server";
 import { useLibrary } from "@/context/LibraryContext";
+import { usePlayer } from "@/context/PlayerContext";
 import { getStorageUsage } from "@/lib/download";
 import { formatBytes } from "@/lib/format";
 import { colors, radius, spacing } from "@/theme/colors";
+
+const CROSSFADE_OPTIONS = [
+  { label: "Off", ms: 0 },
+  { label: "3s", ms: 3000 },
+  { label: "6s", ms: 6000 },
+  { label: "9s", ms: 9000 },
+  { label: "12s", ms: 12000 },
+];
 
 type Status = "idle" | "checking" | "ok" | "fail";
 
@@ -24,6 +33,7 @@ export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { tracks, playlists } = useLibrary();
+  const { crossfadeMs, setCrossfadeMs } = usePlayer();
 
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -98,6 +108,33 @@ export function SettingsScreen() {
           </Text>
         </View>
       )}
+
+      <Text style={styles.sectionTitle}>Playback</Text>
+      <Text style={styles.help}>
+        Crossfade blends the end of one song into the start of the next, so music
+        never stops — like Spotify and Apple Music.
+      </Text>
+      <View style={styles.segment}>
+        {CROSSFADE_OPTIONS.map((opt) => {
+          const active = crossfadeMs === opt.ms;
+          return (
+            <Pressable
+              key={opt.ms}
+              style={[styles.segmentItem, active && styles.segmentItemActive]}
+              onPress={() => setCrossfadeMs(opt.ms)}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  active && styles.segmentTextActive,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
       <Text style={styles.sectionTitle}>Storage</Text>
       <View style={styles.statCard}>
@@ -178,6 +215,31 @@ const styles = StyleSheet.create({
   },
   statusOk: { color: colors.accent, marginLeft: spacing.sm, flex: 1 },
   statusFail: { color: colors.textMuted, marginLeft: spacing.sm, flex: 1, lineHeight: 18 },
+  segment: {
+    flexDirection: "row",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.pill,
+    padding: 4,
+  },
+  segmentItem: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: "center",
+    borderRadius: radius.pill,
+  },
+  segmentItemActive: {
+    backgroundColor: colors.accent,
+  },
+  segmentText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  segmentTextActive: {
+    color: "#000",
+  },
   statCard: {
     flexDirection: "row",
     marginHorizontal: spacing.lg,

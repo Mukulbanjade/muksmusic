@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Artwork } from "@/components/Artwork";
 import { usePlayer } from "@/context/PlayerContext";
+import { tapHaptic } from "@/lib/haptics";
 import { colors, spacing } from "@/theme/colors";
 
 export function MiniPlayer() {
@@ -36,14 +37,28 @@ export function MiniPlayer() {
             {current.artist}
           </Text>
         </View>
-        <Pressable hitSlop={12} onPress={toggle} style={styles.control}>
+        <Pressable
+          hitSlop={12}
+          onPress={() => {
+            tapHaptic();
+            toggle();
+          }}
+          style={styles.control}
+        >
           <Ionicons
             name={isPlaying ? "pause" : "play"}
             size={26}
             color={colors.text}
           />
         </Pressable>
-        <Pressable hitSlop={12} onPress={next} style={styles.control}>
+        <Pressable
+          hitSlop={12}
+          onPress={() => {
+            tapHaptic();
+            next();
+          }}
+          style={styles.control}
+        >
           <Ionicons name="play-skip-forward" size={22} color={colors.text} />
         </Pressable>
       </Pressable>

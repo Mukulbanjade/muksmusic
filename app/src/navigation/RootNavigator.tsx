@@ -12,6 +12,7 @@ import { MiniPlayer } from "@/components/MiniPlayer";
 import { colors } from "@/theme/colors";
 import { HomeScreen } from "@/screens/HomeScreen";
 import { LibraryScreen } from "@/screens/LibraryScreen";
+import { LyricsScreen } from "@/screens/LyricsScreen";
 import { NowPlayingScreen } from "@/screens/NowPlayingScreen";
 import { PlaylistDetailScreen } from "@/screens/PlaylistDetailScreen";
 import { SearchScreen } from "@/screens/SearchScreen";
@@ -97,6 +98,11 @@ export function RootNavigator() {
       <Stack.Screen
         name="NowPlaying"
         component={NowPlayingScreen}
+        options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }}
+      />
+      <Stack.Screen
+        name="Lyrics"
+        component={LyricsScreen}
         options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }}
       />
     </Stack.Navigator>
