@@ -65,6 +65,7 @@ function cookieDiag() {
 }
 import { mbSearchRecordings } from "./musicbrainz.js";
 import { getPlaylist as getSpotifyPlaylist } from "./spotify.js";
+import { analyzeTrack } from "./analyze.js";
 import { writeFileSync } from "node:fs";
 
 // Robust cookies delivery that doesn't depend on how the host mounts files:
@@ -184,6 +185,20 @@ function handleDownload(url, req, res) {
     });
 }
 
+async function handleAnalyze(url, res) {
+  const id = (url.searchParams.get("id") || "").trim();
+  if (!/^[\w-]{6,20}$/.test(id)) {
+    return sendJson(res, 400, { error: "invalid or missing ?id=" });
+  }
+  try {
+    const result = await analyzeTrack(id, LIBRARY_DIR);
+    sendJson(res, 200, result);
+  } catch (err) {
+    console.error("[analyze]", err.message);
+    sendJson(res, 502, { error: "analyze failed", detail: err.message });
+  }
+}
+
 async function handleSpotify(url, res) {
   const link = (url.searchParams.get("url") || "").trim();
   if (!link) return sendJson(res, 400, { error: "missing ?url=" });
@@ -288,6 +303,8 @@ const server = http.createServer((req, res) => {
       return handleDownload(url, req, res);
     case "/spotify":
       return handleSpotify(url, res);
+    case "/analyze":
+      return handleAnalyze(url, res);
     case "/art":
       return handleArt(url, res);
     default:
