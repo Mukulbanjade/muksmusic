@@ -64,6 +64,7 @@ function cookieDiag() {
   };
 }
 import { mbSearchRecordings } from "./musicbrainz.js";
+import { getPlaylist as getSpotifyPlaylist } from "./spotify.js";
 import { writeFileSync } from "node:fs";
 
 // Robust cookies delivery that doesn't depend on how the host mounts files:
@@ -183,6 +184,18 @@ function handleDownload(url, req, res) {
     });
 }
 
+async function handleSpotify(url, res) {
+  const link = (url.searchParams.get("url") || "").trim();
+  if (!link) return sendJson(res, 400, { error: "missing ?url=" });
+  try {
+    const playlist = await getSpotifyPlaylist(link);
+    sendJson(res, 200, playlist);
+  } catch (err) {
+    console.error("[spotify]", err.message);
+    sendJson(res, 502, { error: "spotify import failed", detail: err.message });
+  }
+}
+
 async function handleArt(url, res) {
   const target = url.searchParams.get("url");
   if (!target || !/^https?:\/\//.test(target)) {
@@ -273,6 +286,8 @@ const server = http.createServer((req, res) => {
       return handleSearch(url, res);
     case "/download":
       return handleDownload(url, req, res);
+    case "/spotify":
+      return handleSpotify(url, res);
     case "/art":
       return handleArt(url, res);
     default:
